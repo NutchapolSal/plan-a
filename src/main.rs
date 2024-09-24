@@ -1,5 +1,9 @@
 use std::{error::Error, process::Command};
+
+use image::{io::Reader as ImageReader, GrayImage, ImageBuffer, Luma};
 use mdns_sd::{ServiceDaemon, ServiceEvent};
+use template_matching::{find_extremes, match_template, MatchTemplateMethod};
+
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Hello, world!");
 
@@ -35,5 +39,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     // // Gracefully shutdown the daemon.
     // std::thread::sleep(std::time::Duration::from_secs(10));
     // mdns.shutdown().unwrap();
+
+    let image_a = ImageReader::open("./assets/weekly missions claimall.png")?
+        .decode()?
+        .to_luma32f();
+    println!("a");
+    let image_b = ImageReader::open("./assets/weekly missions claim.png")?
+        .decode()?
+        .to_luma32f();
+    println!("b");
+    let template = ImageReader::open("./assets/claimall button.png")?
+        .decode()?
+        .to_luma32f();
+    println!("c");
+    let out_a = match_template(
+        &image_a,
+        &template,
+        MatchTemplateMethod::SumOfSquaredDifferences,
+    );
+    println!("d");
+    let out_b = match_template(
+        &image_b,
+        &template,
+        MatchTemplateMethod::SumOfSquaredDifferences,
+    );
+    println!("e");
+    // out_a.save("./temp/out a.png")?;
+    println!("{:?}", find_extremes(&out_a));
+    println!("f");
+    // out_b.save("./temp/out b.png")?;
+    println!("{:?}", find_extremes(&out_b));
     Ok(())
 }
