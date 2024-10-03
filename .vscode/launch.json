@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "cargo run",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}\\target\\debug\\plan-a.exe",
+            "environment": [
+                {
+                    "name": "RUST_BACKTRACE",
+                    "value": "short"
+                }
+            ],
+            "args": [],
+            "sourceFileMap": {},
+            "preLaunchTask": "${defaultBuildTask}"
+        }
+    ]
+}
