@@ -35,7 +35,6 @@ const SERIAL: &str = "192.168.1.25:5555";
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Hello, world!");
-    let level_regex = Regex::new(r"level: (\d+)").unwrap();
 
     let mut server = ADBServer::new(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 101), 5037));
 
@@ -68,16 +67,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     let mut i = 0;
     loop {
-        if i % 3 == 0 {
-            match run_charge_separation_iteration(&mut device, &level_regex) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("{:?}", e);
-                }
-            };
+        let res = device.framebuffer_inner();
+        match res {
+            Ok(image) => {
+                image.save(format!(
+                    "./temp/{}.png",
+                    Local::now().format("%Y-%m-%d %H-%M-%S")
+                ))?;
+            }
+            Err(err) => {
+                println!("{:?}", err);
+            }
         }
-        let image = device.framebuffer_inner()?;
-        image.save("./temp/screen.png")?;
+
         i += 1;
         sleep(Duration::from_secs(60));
     }
