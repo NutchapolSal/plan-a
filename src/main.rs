@@ -1,8 +1,10 @@
 use std::{
     collections::VecDeque,
     error::Error,
+    fs,
     io::{stdout, Write},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    path::PathBuf,
     process::Command,
     sync::{Arc, Mutex},
     thread::sleep,
@@ -12,11 +14,14 @@ use std::{
 
 use adb_client::{ADBServer, ADBServerDevice};
 use chrono::Local;
-use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma};
+use def::Plan;
+use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma, RgbaImage};
 use imageproc::contrast::{otsu_level, threshold};
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use regex::Regex;
+use serde::Deserialize;
 use template_matching::{find_extremes, match_template, MatchTemplateMethod};
+mod def;
 
 fn convert_luma_f32_to_u8(image: ImageBuffer<Luma<f32>, Vec<f32>>, max_value: f32) -> GrayImage {
     // Create a new image with u8 pixels
@@ -35,6 +40,10 @@ const SERIAL: &str = "192.168.1.25:5555";
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("Hello, world!");
+
+    let plan: Plan =
+        toml::from_str(fs::read_to_string("./userdata/plans/azurlane/plan.toml")?.as_str())?;
+    println!("{:?}", plan);
 
     let mut server = ADBServer::new(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 101), 5037));
 
@@ -65,23 +74,88 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let mut i = 0;
+    // let mut i = 0;
+    let mut state = "start";
     loop {
-        let res = device.framebuffer_inner();
-        match res {
-            Ok(image) => {
-                image.save(format!(
-                    "./temp/{}.png",
-                    Local::now().format("%Y-%m-%d %H-%M-%S")
-                ))?;
+        'inner: {
+            println!("{} {}", Local::now().format("%Y-%m-%d %H:%M:%S"), state);
+            let res = device.framebuffer_inner();
+            let image = match res {
+                Err(err) => {
+                    println!("{:?}", err);
+                    break 'inner;
+                }
+                Ok(image) => image,
+            };
+            image.save(format!(
+                "./temp/{}.png",
+                Local::now().format("%Y-%m-%d %H-%M-%S")
+            ))?;
+
+            // convert from image v0.25.2 struct to image v0.24.9 struct
+            let image: RgbaImage =
+                ImageBuffer::from_vec(image.width(), image.height(), image.into_raw()).unwrap();
+            let image = DynamicImage::from(image).to_luma32f();
+
+            let state_data = plan.states.get(state).unwrap();
+            if let Some(next) = state_data.next.as_ref() {
+                let mut matches: Vec<_> = next
+                    .iter()
+                    .map(|n| {
+                        let next_state_data = plan.states.get(n).unwrap();
+                        let path = PathBuf::from("./userdata/plans/azurlane/")
+                            .join(next_state_data.ident.as_ref().unwrap());
+                        let template = ImageReader::open(path)?.decode()?.to_luma8();
+                        let template = DynamicImage::from(template).to_luma32f();
+
+                        let res = match_template(
+                            &image,
+                            &template,
+                            MatchTemplateMethod::SumOfSquaredDifferences,
+                        );
+                        Ok::<_, Box<dyn Error>>((n, find_extremes(&res)))
+                    })
+                    .filter_map(|res| match res {
+                        Ok(res) => Some(res),
+                        Err(err) => {
+                            println!("{:?}", err);
+                            None
+                        }
+                    })
+                    .filter(|(_, ext_a)| ext_a.min_value < 1000.0)
+                    .collect();
+
+                matches.sort_by(|(_, ext_a1), (_, ext_a2)| {
+                    ext_a1.min_value.partial_cmp(&ext_a2.min_value).unwrap()
+                });
+
+                if let Some((next, _)) = matches.first() {
+                    state = next;
+                    break 'inner;
+                }
             }
-            Err(err) => {
-                println!("{:?}", err);
+
+            if let Some(to) = plan.states.get(state).unwrap().to.as_ref() {
+                let to = to.first().unwrap();
+                for act in &to.act {
+                    match act {
+                        def::Actions::Tap(pos) => {
+                            device.tap(pos[0], pos[1])?;
+                        }
+                    }
+                }
+                state = &to.state;
+                break 'inner;
             }
+            panic!("state should have next or to");
         }
 
-        i += 1;
-        sleep(Duration::from_secs(60));
+        if state == "end" {
+            break;
+        }
+
+        // i += 1;
+        sleep(Duration::from_secs(15));
     }
 
     // let mut echo_hello = Command::new("adb");
@@ -201,18 +275,28 @@ impl ADBDeviceRunCommand for ADBServerDevice {
     }
 }
 
+trait ADBDeviceSimpleCommand {
+    fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>>;
+}
+
+impl ADBDeviceSimpleCommand for ADBServerDevice {
+    fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>> {
+        self.shell_command(
+            vec!["input", "tap", &x.to_string(), &y.to_string()],
+            &mut Vec::new(),
+        )?;
+        Ok(())
+    }
+}
+
 fn template_matching_example(
     image_path: &str,
     template_path: &str,
     output_path: &str,
 ) -> Result<(), Box<dyn Error>> {
     let image = ImageReader::open(image_path)?.decode()?.to_luma8();
-    let image = threshold(&image, otsu_level(&image));
-    image.save(format!("{output_path} image threshold.png"))?;
     let image = DynamicImage::from(image).to_luma32f();
     let template = ImageReader::open(template_path)?.decode()?.to_luma8();
-    let template = threshold(&template, otsu_level(&template));
-    template.save(format!("{output_path} template threshold.png"))?;
     let template = DynamicImage::from(template).to_luma32f();
     let out = match_template(
         &image,
