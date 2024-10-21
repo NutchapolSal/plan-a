@@ -204,54 +204,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
-struct LevelOutputParseError {
-    output: String,
-}
-
-impl Error for LevelOutputParseError {}
-
-impl std::fmt::Display for LevelOutputParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "can't parse level: {}", self.output)
-    }
-}
-
-fn run_charge_separation_iteration(
-    device: &mut ADBServerDevice,
-    level_regex: &Regex,
-) -> Result<(), Box<dyn Error>> {
-    let output = device.run_command(vec!["dumpsys battery"])?;
-
-    let caps = level_regex.captures(&output);
-    let level = caps
-        .and_then(|caps| caps.get(1))
-        .and_then(|level| level.as_str().parse::<u8>().ok());
-    let Some(level) = level else {
-        return Err(Box::new(LevelOutputParseError { output }));
-    };
-
-    if level < 70 {
-        device.run_command(vec!["settings put global charge_separation_switch 0"])?;
-        print!(",")
-    } else {
-        let charge_separation_switch =
-            device.run_command(vec!["settings get global charge_separation_switch"])?;
-        let charge_separation_switch = charge_separation_switch.trim();
-        if charge_separation_switch == "0" {
-            device.run_command(vec!["settings put global charge_separation_switch 1"])?;
-            println!(
-                "charge_separation_switch=0 {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S")
-            );
-        } else {
-            print!(".");
-        }
-    }
-    stdout().lock().flush()?;
-    Ok(())
-}
-
 trait ADBDeviceRunCommand {
     fn run_command<S>(
         &mut self,
