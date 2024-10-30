@@ -4,159 +4,207 @@ use std::{
     fs,
     io::{stdout, Write},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
+    str::FromStr,
     sync::{Arc, Mutex},
     thread::sleep,
     time::Duration,
-    vec::Vec,
+    vec::{self, Vec},
 };
 
 use adb_client::{ADBServer, ADBServerDevice};
+use adb_device_ext::ADBDeviceSimpleCommand;
 use chrono::Local;
-use def::Plan;
+use def::{Config, Plan, Schedule};
 use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma, RgbaImage};
+use image_stuff::{convert_luma_f32_to_u8, downgrade_image};
 use imageproc::contrast::{otsu_level, threshold};
 use mdns_sd::{ServiceDaemon, ServiceEvent};
+use mlua::{ExternalError, Function, Lua, Value::Nil};
+use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
+use plan_engine::ScreenEngine;
 use regex::Regex;
+use rten::Model;
 use serde::Deserialize;
 use template_matching::{find_extremes, match_template, MatchTemplateMethod};
+mod adb_device_ext;
 mod def;
-
-fn convert_luma_f32_to_u8(image: ImageBuffer<Luma<f32>, Vec<f32>>, max_value: f32) -> GrayImage {
-    // Create a new image with u8 pixels
-    let (width, height) = image.dimensions();
-
-    // Map each pixel from f32 to u8, scaling and clamping as necessary
-    ImageBuffer::from_fn(width, height, |x, y| {
-        let Luma([pixel_value]) = image.get_pixel(x, y);
-        // Scale f32 to u8 (assuming f32 values are in 0.0..1.0 range)
-        let scaled_value = ((pixel_value / max_value) * 255.0) as u8;
-        Luma([scaled_value])
-    })
-}
-
-const SERIAL: &str = "192.168.1.25:5555";
+mod image_stuff;
+mod plan_engine;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let userdata_path = Path::new("./userdata"); // TODO
+    let config = def::Config::new(&userdata_path.join("config.toml"))?;
+
+    let detection_model = Model::load_file(userdata_path.join(&config.ocr.detection_model_path))?;
+    let recognition_model =
+        Model::load_file(userdata_path.join(&config.ocr.recognition_model_path))?;
+
+    let ocr = OcrEngine::new(OcrEngineParams {
+        detection_model: Some(detection_model),
+        recognition_model: Some(recognition_model),
+        ..Default::default()
+    })?;
+    let ocr = Arc::new(ocr);
+
+    // let test_img = ImageReader::open("./userdata/plans/azurlane/assets/settings-header.png")?
+    //     .decode()?
+    //     .to_rgb8();
+    // let test_img = ImageSource::from_bytes(test_img.as_raw(), test_img.dimensions())?;
+    // let test_img = ocr.prepare_input(test_img)?;
+    // let test_output = ocr.get_text(&test_img)?;
+    // println!("{:?}", test_output);
+
+    // return Ok(());
+
     println!("Hello, world!");
 
-    let plan: Plan =
-        toml::from_str(fs::read_to_string("./userdata/plans/azurlane/plan.toml")?.as_str())?;
-    println!("{:?}", plan);
+    let plan_wd = PathBuf::from(&userdata_path.join("plans/azurlane")); // TODO
 
-    let mut server = ADBServer::new(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 101), 5037));
+    let plan: Plan = Plan::new(&plan_wd)?;
+    println!("{:#?}", plan);
 
-    let mut device: ADBServerDevice;
+    let mut server = ADBServer::new(config.adb.host);
+    let device = try_connect_to_device(&config, &mut server)?;
+    let device = Arc::new(Mutex::new(device));
 
-    let mut retry_connect_device = 0;
-    loop {
-        if 0 < retry_connect_device {
-            println!(
-                "{:?}",
-                server.connect_device(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 25), 5555))
-            );
-        }
-        let device_temp = server.get_device_by_name(SERIAL);
-        match device_temp {
-            Ok(d) => {
-                device = d;
-                break;
-            }
-            Err(e) => {
-                println!("{:?}", e);
-                if 1 < retry_connect_device {
-                    panic!("Failed to connect to device");
-                }
-                retry_connect_device += 1;
-            }
-        }
-    }
+    run_plan(device, ocr, &plan)?;
+
+    return Ok(());
+
+    // globals.set(
+    //     "sleep",
+    //     lua.create_function(|_, seconds: f64| {
+    //         sleep(Duration::from_secs_f64(seconds));
+    //         Ok(())
+    //     })?,
+    // )?;
+
+    // lua.load(
+    //     r#"
+    //     print("Hello from Lua!")
+    //     sleep(1)
+    // "#,
+    // )
+    // .exec()?;
+    // println!("rust code");
+    // lua.load(
+    //     r#"
+    //     print("More Lua!")
+    //     sleep(1)
+    // "#,
+    // )
+    // .exec()?;
+    // println!("more rust code");
+
+    // {
+    //     let mut rust_val = 0;
+    //     println!("{}", rust_val);
+    //     lua.scope(|scope| {
+    //         lua.globals().set(
+    //             "sketchy",
+    //             scope.create_function_mut(|_, val: i64| {
+    //                 rust_val = val;
+    //                 Ok(())
+    //             })?,
+    //         )?;
+
+    //         lua.load(
+    //             r#"
+    //             sketchy(5)
+    //         "#,
+    //         )
+    //         .exec()
+    //     })?;
+
+    //     println!("{}", rust_val);
+    // }
+
+    // return Ok(());
 
     println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     // let mut i = 0;
     let mut state = "start";
-    loop {
-        'inner: {
-            println!("{} {}", Local::now().format("%Y-%m-%d %H:%M:%S"), state);
-            let res = device.framebuffer_inner();
-            let image = match res {
-                Err(err) => {
-                    println!("{:?}", err);
-                    break 'inner;
-                }
-                Ok(image) => image,
-            };
-            image.save(format!(
-                "./temp/{}.png",
-                Local::now().format("%Y-%m-%d %H-%M-%S")
-            ))?;
+    // loop {
+    //     'inner: {
+    //         // println!("{} {}", Local::now().format("%Y-%m-%d %H:%M:%S"), state);
+    //         // let res = device.framebuffer_inner();
+    //         // let image = match res {
+    //         //     Err(err) => {
+    //         //         println!("{:?}", err);
+    //         //         break 'inner;
+    //         //     }
+    //         //     Ok(image) => image,
+    //         // };
+    //         // image.save(format!(
+    //         //     "./temp/{}.png",
+    //         //     Local::now().format("%Y-%m-%d %H-%M-%S")
+    //         // ))?;
 
-            // convert from image v0.25.2 struct to image v0.24.9 struct
-            let image: RgbaImage =
-                ImageBuffer::from_vec(image.width(), image.height(), image.into_raw()).unwrap();
-            let image = DynamicImage::from(image).to_luma32f();
+    //         // let image: RgbaImage = downgrade_image(image);
+    //         // let image = DynamicImage::from(image).to_luma32f();
 
-            let state_data = plan.states.get(state).unwrap();
-            if let Some(next) = state_data.next.as_ref() {
-                let mut matches: Vec<_> = next
-                    .iter()
-                    .map(|n| {
-                        let next_state_data = plan.states.get(n).unwrap();
-                        let path = PathBuf::from("./userdata/plans/azurlane/")
-                            .join(next_state_data.ident.as_ref().unwrap());
-                        let template = ImageReader::open(path)?.decode()?.to_luma8();
-                        let template = DynamicImage::from(template).to_luma32f();
+    //         // let state_data = plan.screens.get(state).unwrap();
+    //         // if let Some(next) = state_data.next.as_ref() {
+    //         //     let mut matches: Vec<_> = next
+    //         //         .iter()
+    //         //         .map(|n| {
+    //         //             let next_state_data = plan.screens.get(n).unwrap();
+    //         //             let path = PathBuf::from("./userdata/plans/azurlane/")
+    //         //                 .join(next_state_data.ident.as_ref().unwrap());
+    //         //             let template = ImageReader::open(path)?.decode()?.to_luma8();
+    //         //             let template = DynamicImage::from(template).to_luma32f();
 
-                        let res = match_template(
-                            &image,
-                            &template,
-                            MatchTemplateMethod::SumOfSquaredDifferences,
-                        );
-                        Ok::<_, Box<dyn Error>>((n, find_extremes(&res)))
-                    })
-                    .filter_map(|res| match res {
-                        Ok(res) => Some(res),
-                        Err(err) => {
-                            println!("{:?}", err);
-                            None
-                        }
-                    })
-                    .filter(|(_, ext_a)| ext_a.min_value < 1000.0)
-                    .collect();
+    //         //             let res = match_template(
+    //         //                 &image,
+    //         //                 &template,
+    //         //                 MatchTemplateMethod::SumOfSquaredDifferences,
+    //         //             );
+    //         //             Ok::<_, Box<dyn Error>>((n, find_extremes(&res)))
+    //         //         })
+    //         //         .filter_map(|res| match res {
+    //         //             Ok(res) => Some(res),
+    //         //             Err(err) => {
+    //         //                 println!("{:?}", err);
+    //         //                 None
+    //         //             }
+    //         //         })
+    //         //         .filter(|(_, ext_a)| ext_a.min_value < 1000.0)
+    //         //         .collect();
 
-                matches.sort_by(|(_, ext_a1), (_, ext_a2)| {
-                    ext_a1.min_value.partial_cmp(&ext_a2.min_value).unwrap()
-                });
+    //         //     matches.sort_by(|(_, ext_a1), (_, ext_a2)| {
+    //         //         ext_a1.min_value.partial_cmp(&ext_a2.min_value).unwrap()
+    //         //     });
 
-                if let Some((next, _)) = matches.first() {
-                    state = next;
-                    break 'inner;
-                }
-            }
+    //         //     if let Some((next, _)) = matches.first() {
+    //         //         state = next;
+    //         //         break 'inner;
+    //         //     }
+    //         // }
 
-            if let Some(to) = plan.states.get(state).unwrap().to.as_ref() {
-                let to = to.first().unwrap();
-                for act in &to.act {
-                    match act {
-                        def::Actions::Tap(pos) => {
-                            device.tap(pos[0], pos[1])?;
-                        }
-                    }
-                }
-                state = &to.state;
-                break 'inner;
-            }
-            panic!("state should have next or to");
-        }
+    //         // if let Some(to) = plan.screens.get(state).unwrap().to.as_ref() {
+    //         //     let to = to.first().unwrap();
+    //         //     for act in &to.act {
+    //         //         match act {
+    //         //             def::Actions::Tap(pos) => {
+    //         //                 device.tap(pos[0], pos[1])?;
+    //         //             }
+    //         //         }
+    //         //     }
+    //         //     state = &to.state;
+    //         //     break 'inner;
+    //         // }
+    //         // panic!("state should have next or to");
+    //     }
 
-        if state == "end" {
-            break;
-        }
+    //     if state == "end" {
+    //         break;
+    //     }
 
-        // i += 1;
-        sleep(Duration::from_secs(15));
-    }
+    //     // i += 1;
+    //     sleep(Duration::from_secs(15));
+    // }
 
     // let mut echo_hello = Command::new("adb");
     // // echo_hello.arg("-h");
@@ -204,40 +252,88 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-trait ADBDeviceRunCommand {
-    fn run_command<S>(
-        &mut self,
-        command: impl IntoIterator<Item = S>,
-    ) -> Result<String, Box<dyn Error>>
-    where
-        S: ToString;
-}
-
-impl ADBDeviceRunCommand for ADBServerDevice {
-    fn run_command<S>(
-        &mut self,
-        command: impl IntoIterator<Item = S>,
-    ) -> Result<String, Box<dyn Error>>
-    where
-        S: ToString,
+fn run_plan(
+    device: Arc<Mutex<ADBServerDevice>>,
+    ocr: Arc<OcrEngine>,
+    plan: &Plan,
+) -> Result<(), Box<dyn Error>> {
     {
-        let mut output = Vec::new();
-        self.shell_command(command, &mut output)?;
-        Ok(String::from_utf8(output)?)
+        let mut dev = device.lock().unwrap();
+        dev.stop_app(&plan.package)?;
+        dev.start_app(&plan.package, &plan.activity)?;
     }
+
+    let mut plan_engine = plan_engine::PlanEngine::new(plan, device, ocr);
+
+    // println!("{:?}", engine.get_state());
+
+    // lua.scope(|scope| {
+    //     globals.set(
+    //         "set_state",
+    //         scope.create_function_mut(|_, args: String| {
+    //             engine.set_state(args).unwrap();
+    //             Ok(())
+    //         })?,
+    //     )?;
+    //     lua.load(
+    //         r#"
+    //             set_state("title-1")
+    //         "#,
+    //     )
+    //     .exec()
+    // })?;
+
+    // println!("{:?}", engine.get_state());
+    for schedule in &plan.schedules {
+        match &schedule.action {
+            def::ScheduleActions::Routines(vec) => {
+                for routine in vec {
+                    let nav_target = plan.routine_location.get(routine).unwrap();
+                    plan_engine.navigate_to(nav_target)?;
+                    plan_engine.run_script(&plan.workdir.join(routine))?;
+                }
+            }
+            def::ScheduleActions::Script(path) => {
+                println!("Running script {:?}", path);
+            }
+        }
+    }
+    Ok(())
 }
 
-trait ADBDeviceSimpleCommand {
-    fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>>;
-}
-
-impl ADBDeviceSimpleCommand for ADBServerDevice {
-    fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>> {
-        self.shell_command(
-            vec!["input", "tap", &x.to_string(), &y.to_string()],
-            &mut Vec::new(),
-        )?;
-        Ok(())
+fn try_connect_to_device(
+    config: &Config,
+    server: &mut ADBServer,
+) -> Result<ADBServerDevice, Box<dyn Error>> {
+    let mut retry_connect_device = 0;
+    loop {
+        if 0 < retry_connect_device {
+            let device_socket = SocketAddrV4::from_str(&config.adb.device_serial);
+            match device_socket {
+                Ok(device_socket) => {
+                    println!("{:?}", server.connect_device(device_socket));
+                }
+                Err(_) => {
+                    println!("{:?}", server.connect_device(config.adb.host));
+                }
+            }
+            println!(
+                "{:?}",
+                server.connect_device(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 25), 5555))
+            );
+        }
+        let device_temp = server.get_device_by_name(&config.adb.device_serial);
+        match device_temp {
+            Ok(d) => {
+                break Ok(d);
+            }
+            Err(e) => {
+                if 1 < retry_connect_device {
+                    return Err(Box::new(e));
+                }
+                retry_connect_device += 1;
+            }
+        }
     }
 }
 

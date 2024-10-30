@@ -7,7 +7,7 @@ use std::{
     vec::Vec,
 };
 
-use adb_client::{ADBServer, ADBServerDevice};
+use adb_client::{ADBDeviceExt, ADBServer, ADBServerDevice};
 use chrono::Local;
 use regex::Regex;
 
