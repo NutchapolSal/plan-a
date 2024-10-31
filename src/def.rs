@@ -16,20 +16,20 @@ type Rect = (u32, u32, u32, u32);
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct Config {
-    pub adb: ADBConfig,
-    pub ocr: OCRConfig,
+    pub adb: AdbConfig,
+    pub ocr: OcrConfig,
 }
 
 #[derive(Clone, Deserialize, Debug)]
-pub struct ADBConfig {
+pub struct AdbConfig {
     pub host: SocketAddrV4,
     pub device_serial: String,
 }
 
-impl TryFrom<ADBConfigDef> for ADBConfig {
+impl TryFrom<AdbConfigDef> for AdbConfig {
     type Error = Box<dyn Error>;
 
-    fn try_from(def: ADBConfigDef) -> Result<Self, Self::Error> {
+    fn try_from(def: AdbConfigDef) -> Result<Self, Self::Error> {
         let host_str = def.host.as_deref().unwrap_or("127.0.0.1");
         let host = Ipv4Addr::from_str(host_str);
         let host = match host {
@@ -48,7 +48,7 @@ impl Config {
         let str = fs::read_to_string(config_path)?;
         let config: ConfigDef = toml::from_str(&str)?;
         Ok(Self {
-            adb: ADBConfig::try_from(config.adb)?,
+            adb: AdbConfig::try_from(config.adb)?,
             ocr: config.ocr,
         })
     }
@@ -56,18 +56,18 @@ impl Config {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct ConfigDef {
-    pub adb: ADBConfigDef,
-    pub ocr: OCRConfig,
+    pub adb: AdbConfigDef,
+    pub ocr: OcrConfig,
 }
 
 #[derive(Clone, Deserialize, Debug)]
-pub struct ADBConfigDef {
+pub struct AdbConfigDef {
     pub host: Option<String>,
     pub device_serial: String,
 }
 
 #[derive(Clone, Deserialize, Debug)]
-pub struct OCRConfig {
+pub struct OcrConfig {
     pub detection_model_path: PathBuf,
     pub recognition_model_path: PathBuf,
 }
@@ -85,7 +85,7 @@ pub struct Plan {
 
 #[derive(Clone, Debug)]
 pub struct Screen {
-    pub ident: Option<StateIdent>,
+    pub ident: Option<ScreenIdent>,
     pub nav: ScreenNavigation,
     pub routines: Vec<PathBuf>,
     pub group: Option<String>,
@@ -93,7 +93,7 @@ pub struct Screen {
 
 #[derive(Clone, Debug)]
 pub struct ScreenGroup {
-    pub ident: Option<StateIdent>,
+    pub ident: Option<ScreenIdent>,
     pub screens: Vec<String>,
     pub nav: ScreenNavigation,
 }
@@ -183,7 +183,7 @@ pub struct PlanDef {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct ScreenDef {
-    pub ident: Option<StateIdent>,
+    pub ident: Option<ScreenIdent>,
     #[serde(flatten)]
     pub nav: ScreenNavigation,
     #[serde(default)]
@@ -201,7 +201,7 @@ pub struct ScreenNavigation {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct Subscreen {
-    pub ident: Option<StateIdent>,
+    pub ident: Option<ScreenIdent>,
     #[serde(default)]
     pub to: HashMap<String, ScreenTo>,
     #[serde(default)]
@@ -210,7 +210,7 @@ pub struct Subscreen {
 
 #[derive(Clone, Deserialize, Debug)]
 #[serde(untagged)]
-pub enum StateIdent {
+pub enum ScreenIdent {
     RefMatch {
         #[serde(rename = "ref")]
         reference: PathBuf,
@@ -220,7 +220,7 @@ pub enum StateIdent {
         image: PathBuf,
         pos: Pos,
     },
-    OCR {
+    Ocr {
         ocr: String,
         operation: TextOperation,
         rect: Rect,

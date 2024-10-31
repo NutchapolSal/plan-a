@@ -19,13 +19,13 @@ use template_matching::{find_extremes, match_template};
 
 use crate::{
     adb_device_ext::ADBDeviceSimpleCommand,
-    def::{Actions, Plan, Screen, ScreenGroup, ScreenTo, StateIdent, TextOperation},
+    def::{Actions, Plan, Screen, ScreenGroup, ScreenIdent, ScreenTo, TextOperation},
     image_stuff::{downgrade_image, RgbaImageNew},
 };
 
 #[derive(Clone, Debug)]
 pub enum ScreenEngineAction {
-    Identify(Vec<(String, StateIdent)>),
+    Identify(Vec<(String, ScreenIdent)>),
     Navigate(String, ScreenTo),
     None,
 }
@@ -470,7 +470,7 @@ impl<'a> PlanEngine<'a> {
     }
 }
 
-trait WorkingStateIdent {
+trait WorkingScreenIdent {
     fn ident_screen(
         &self,
         plan: &Plan,
@@ -479,7 +479,7 @@ trait WorkingStateIdent {
     ) -> Result<bool, Box<dyn Error>>;
 }
 
-impl WorkingStateIdent for StateIdent {
+impl WorkingScreenIdent for ScreenIdent {
     fn ident_screen(
         &self,
         plan: &Plan,
@@ -487,7 +487,7 @@ impl WorkingStateIdent for StateIdent {
         screenshot: RgbaImageNew,
     ) -> Result<bool, Box<dyn Error>> {
         match self {
-            StateIdent::RefMatch {
+            ScreenIdent::RefMatch {
                 reference: ref_image_path,
                 rect,
             } => {
@@ -512,7 +512,7 @@ impl WorkingStateIdent for StateIdent {
                 let extremes = find_extremes(&m);
                 Ok(extremes.min_value < 250.0)
             }
-            StateIdent::ImageMatch {
+            ScreenIdent::ImageMatch {
                 image: image_path,
                 pos,
             } => {
@@ -536,7 +536,7 @@ impl WorkingStateIdent for StateIdent {
                 let extremes = find_extremes(&m);
                 Ok(extremes.min_value < 250.0)
             }
-            StateIdent::OCR {
+            ScreenIdent::Ocr {
                 ocr: ocr_target,
                 operation,
                 rect,
