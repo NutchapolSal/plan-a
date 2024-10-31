@@ -161,10 +161,6 @@ fn try_connect_to_device(
                     println!("{:?}", server.connect_device(config.adb.host));
                 }
             }
-            println!(
-                "{:?}",
-                server.connect_device(SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 25), 5555))
-            );
         }
         let device_temp = server.get_device_by_name(&config.adb.device_serial);
         match device_temp {
