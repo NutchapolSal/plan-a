@@ -214,16 +214,16 @@ pub enum StateIdent {
     RefMatch {
         #[serde(rename = "ref")]
         reference: PathBuf,
-        rect: (u32, u32, u32, u32),
+        rect: Rect,
     },
     ImageMatch {
         image: PathBuf,
-        pos: (u32, u32),
+        pos: Pos,
     },
     OCR {
         ocr: String,
         operation: TextOperation,
-        rect: (u32, u32, u32, u32),
+        rect: Rect,
     },
 }
 
