@@ -233,16 +233,15 @@ impl ScreenEngine {
             };
 
             if front.state.curr == self.state.curr {
-                self.state = self.navigate_plan.pop_front().unwrap().state;
-                self.idented = false;
+                self.step_navigate();
                 continue;
             }
 
             if !self.idented {
-                let ident = &self.screens.get(&front.state.curr).unwrap().ident;
+                let ident = &self.screens.get(&self.state.curr).unwrap().ident;
                 if ident.is_some() {
                     return Ok(ScreenEngineAction::Identify(vec![(
-                        front.state.curr.to_owned(),
+                        self.state.curr.to_owned(),
                         ident.clone().unwrap(),
                     )]));
                 } else {
@@ -263,6 +262,11 @@ impl ScreenEngine {
         }
 
         self.idented = true;
+    }
+
+    pub fn step_navigate(&mut self) {
+        self.state = self.navigate_plan.pop_front().unwrap().state;
+        self.idented = false;
     }
 
     fn pathfind(&self, target: &str) -> Result<Vec<ScreenStatePathfinding>, Box<dyn Error>> {
@@ -420,10 +424,9 @@ impl<'a> PlanEngine<'a> {
                         println!("Navigating to {}", name);
                         match to {
                             ScreenTo::Script(path) => {
-                                let path = &self.plan.workdir.join(path);
                                 println!("Running script {:?}", path);
 
-                                match self.run_script(path) {
+                                match self.run_script(&path) {
                                     Ok(()) => (),
                                     Err(err) => {
                                         if let Some(mlua::Error::FromLuaConversionError {
@@ -452,7 +455,7 @@ impl<'a> PlanEngine<'a> {
                                 }
                             }
                         }
-                        self.screen_engine.go_to(&name)?;
+                        self.screen_engine.step_navigate();
                     }
                     ScreenEngineAction::None => {
                         println!("No more steps needed");
@@ -507,7 +510,7 @@ impl WorkingStateIdent for StateIdent {
                     template_matching::MatchTemplateMethod::SumOfSquaredDifferences,
                 );
                 let extremes = find_extremes(&m);
-                Ok(extremes.min_value < 100.0)
+                Ok(extremes.min_value < 250.0)
             }
             StateIdent::ImageMatch {
                 image: image_path,
@@ -531,7 +534,7 @@ impl WorkingStateIdent for StateIdent {
                     template_matching::MatchTemplateMethod::SumOfSquaredDifferences,
                 );
                 let extremes = find_extremes(&m);
-                Ok(extremes.min_value < 100.0)
+                Ok(extremes.min_value < 250.0)
             }
             StateIdent::OCR {
                 ocr: ocr_target,
