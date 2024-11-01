@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Hello, world!");
 
-    let plan_wd = PathBuf::from(&userdata_path.join("plans/azurlane")); // TODO
+    let plan_wd = PathBuf::from(&userdata_path.join("plans/bluearchive")); // TODO
 
     let (plan, plan_warnings) = Plan::new(&plan_wd)?;
     for warning in plan_warnings {
@@ -79,6 +79,7 @@ struct MyApp {
     ident_result: Arc<Mutex<Result<Vec<bool>, String>>>,
     current_image: Arc<Mutex<Option<PathBuf>>>,
     screenshot_loading: Arc<AtomicBool>,
+    ident_loading: Arc<AtomicBool>,
     clicked_poses: Vec<Pos2>,
     hover_pos: Option<Pos2>,
 }
@@ -87,6 +88,7 @@ impl MyApp {
     fn new(ocr: OcrEngine, mut device: ADBServerDevice, plan: Plan, userdata_path: &Path) -> Self {
         let current_image = Arc::new(Mutex::new(None));
         let screenshot_loading = Arc::new(AtomicBool::new(false));
+        let ident_loading = Arc::new(AtomicBool::new(false));
         let plan = Arc::new(Mutex::new(plan));
         let ocr = Arc::new(ocr);
         let ident_result: Arc<Mutex<Result<Vec<bool>, String>>> =
@@ -130,7 +132,7 @@ impl MyApp {
                     break;
                 };
 
-                let plan_wd = PathBuf::from(&userdata_path.join("plans/azurlane")); // TODO
+                let plan_wd = PathBuf::from(&userdata_path.join("plans/bluearchive")); // TODO
                 let (plan, plan_warnings) = match Plan::new(&plan_wd) {
                     Ok(p) => p,
                     Err(e) => {
@@ -150,8 +152,11 @@ impl MyApp {
         let ocr_1 = ocr.clone();
         let plan_2 = plan.clone();
         let current_image_2 = current_image.clone();
+        let ident_loading_1 = ident_loading.clone();
         thread::spawn(move || {
             while let Ok(ident_run) = idn_rx.recv() {
+                ident_loading_1.store(true, std::sync::atomic::Ordering::Relaxed);
+
                 let idents = match ident_run {
                     IdentRun::Parsed(idents) => Ok(idents),
                     IdentRun::Manual(text) => deser_idents(&text),
@@ -187,6 +192,8 @@ impl MyApp {
                     *idrs_1.lock().unwrap() =
                         Ok(reses.iter().map(|v| *v.as_ref().unwrap()).collect());
                 }
+
+                ident_loading_1.store(false, std::sync::atomic::Ordering::Relaxed);
             }
         });
 
@@ -200,6 +207,7 @@ impl MyApp {
             counter: 0,
             current_image,
             screenshot_loading,
+            ident_loading,
             clicked_poses: Default::default(),
             hover_pos: Default::default(),
             selected_screen: Default::default(),
@@ -312,17 +320,24 @@ impl eframe::App for MyApp {
                         }
                     });
                     ui_b.horizontal(|ui| {
-                        match self.ident_result.lock().unwrap().as_ref() {
-                            Ok(res) => {
-                                ui.label("Result:");
-                                for v in res.iter() {
-                                    ui.label(if *v { "✅" } else { "❌" });
+                        if self
+                            .ident_loading
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                        {
+                            ui.spinner();
+                        } else {
+                            match self.ident_result.lock().unwrap().as_ref() {
+                                Ok(res) => {
+                                    ui.label("Result:");
+                                    for v in res.iter() {
+                                        ui.label(if *v { "✅" } else { "❌" });
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                ui.label(format!("Error: {:?}", e));
-                            }
-                        };
+                                Err(e) => {
+                                    ui.label(format!("Error: {:?}", e));
+                                }
+                            };
+                        }
                     });
                 });
 

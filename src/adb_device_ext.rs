@@ -31,6 +31,14 @@ impl ADBDeviceRunCommand for ADBServerDevice {
 
 pub(crate) trait ADBDeviceSimpleCommand {
     fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>>;
+    fn swipe(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        duration_ms: Option<u32>,
+    ) -> Result<(), Box<dyn Error>>;
     fn back(&mut self) -> Result<(), Box<dyn Error>>;
     fn start_app(&mut self, package: &str, activity: &str) -> Result<(), Box<dyn Error>>;
     fn stop_app(&mut self, package: &str) -> Result<(), Box<dyn Error>>;
@@ -42,6 +50,29 @@ impl ADBDeviceSimpleCommand for ADBServerDevice {
             vec!["input", "tap", &x.to_string(), &y.to_string()],
             &mut Vec::new(),
         )?;
+        Ok(())
+    }
+
+    fn swipe(
+        &mut self,
+        x1: u32,
+        y1: u32,
+        x2: u32,
+        y2: u32,
+        duration_ms: Option<u32>,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut command = vec![
+            "input".to_string(),
+            "swipe".to_string(),
+            x1.to_string(),
+            y1.to_string(),
+            x2.to_string(),
+            y2.to_string(),
+        ];
+        if let Some(duration) = duration_ms {
+            command.push(duration.to_string());
+        }
+        self.shell_command(command, &mut Vec::new())?;
         Ok(())
     }
 

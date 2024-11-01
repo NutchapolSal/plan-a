@@ -9,9 +9,9 @@ use std::{
 
 use serde::{Deserialize, Deserializer};
 
-/// (x, y)
+/// `(x, y)`
 type Pos = (u32, u32);
-/// (x, y, width, height)
+/// `(x, y, width, height)`
 type Rect = (u32, u32, u32, u32);
 
 #[derive(Clone, Deserialize, Debug)]
@@ -207,7 +207,9 @@ impl Plan {
 pub struct PlanDef {
     pub package: String,
     pub activity: String,
+    #[serde(default)]
     pub screens: HashMap<String, ScreenDef>,
+    #[serde(default)]
     pub schedules: Vec<Schedule>,
 }
 
@@ -279,6 +281,8 @@ pub enum ScreenTo {
 #[serde(rename_all = "kebab-case")]
 pub enum Actions {
     Tap(u32, u32),
+    /// `(x1, y1, x2, y2, duration_ms)`
+    Swipe(u32, u32, u32, u32, u32),
     Back,
 }
 

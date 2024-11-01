@@ -548,6 +548,10 @@ impl<'a> PlanEngine<'a> {
                                         Actions::Back => {
                                             device.back()?;
                                         }
+                                        Actions::Swipe(x1, y1, x2, y2, dur_ms) => {
+                                            device.swipe(x1, y1, x2, y2, Some(dur_ms))?;
+                                        },
+                                        
                                     }
                                 }
                             }

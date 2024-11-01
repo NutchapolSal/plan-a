@@ -18,6 +18,7 @@ use adb_device_ext::{ADBDeviceSimpleCommand, ADBServerTryConnectToDevice};
 use chrono::Local;
 use debug_gui::DebugData;
 use def::{Config, Plan, Schedule};
+use glob::glob;
 use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma, RgbaImage};
 use image_stuff::{convert_luma_f32_to_u8, downgrade_image};
 use imageproc::contrast::{otsu_level, threshold};
@@ -54,18 +55,43 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Hello, world!");
 
-    let plan_wd = PathBuf::from(&userdata_path.join("plans/azurlane")); // TODO
-
-    let (plan, plan_warnings) = Plan::new(&plan_wd)?;
-    for warning in plan_warnings {
-        eprintln!("{}", warning);
+    let mut plans = Vec::new();
+    for entry in glob(userdata_path.join("plans/**/plan.toml").to_str().unwrap()).unwrap() {
+        let path = entry.unwrap();
+        plans.push(path.parent().unwrap().to_path_buf());
     }
+    let plans = plans
+        .iter()
+        .map(|x| (Plan::new(x), x))
+        .filter_map(|(x, y)| match x {
+            Ok(x) => Some(x),
+            Err(e) => {
+                eprintln!("Error loading plan: {}\n{:?}", y.display(), e);
+                None
+            }
+        })
+        .map(|(p, w)| {
+            if !w.is_empty() {
+                eprintln!("Warning in plan: {}", p.workdir.display());
+                for w in w {
+                    eprintln!("  {}", w);
+                }
+            }
+            p
+        })
+        .collect::<Vec<_>>();
 
     let mut server = ADBServer::new(config.adb.host);
     let device = server.try_connect_to_device(&config)?;
     let device = Arc::new(Mutex::new(device));
 
-    run_plan(device, ocr, &plan, Arc::downgrade(&debug_gui))?;
+    loop {
+        for plan in &plans {
+            let device = device.clone();
+            let ocr = ocr.clone();
+            run_plan(device, ocr, plan, Arc::downgrade(&debug_gui))?;
+        }
+    }
 
     return Ok(());
 
