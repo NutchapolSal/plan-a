@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     fs,
     net::{AddrParseError, Ipv4Addr, SocketAddrV4},
@@ -7,7 +7,7 @@ use std::{
     str::FromStr,
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 /// (x, y)
 type Pos = (u32, u32);
@@ -99,7 +99,36 @@ pub struct ScreenGroup {
 }
 
 impl Plan {
-    pub fn new(plan_wd: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn validate(mut self) -> Result<(Self, Vec<String>), Box<dyn Error>> {
+        let mut warnings = Vec::new();
+        let screen_names: HashSet<_> = self.screens.keys().map(|v| v.to_owned()).collect();
+        for (name, screen) in self.screens.iter_mut() {
+            screen.nav.to.retain(|k, _v| {
+                let keep = screen_names.contains(k);
+                if !keep {
+                    warnings.push(format!(
+                        "screen `{}` has a navigation target to a non-existent screen `{}`",
+                        name, k
+                    ));
+                }
+                keep
+            });
+        }
+        for (name, group) in self.screen_groups.iter_mut() {
+            group.nav.to.retain(|k, _v| {
+                let keep = screen_names.contains(k);
+                if !keep {
+                    warnings.push(format!(
+                        "screen group `{}` has a navigation target to a non-existent screen `{}`",
+                        name, k
+                    ));
+                }
+                keep
+            });
+        }
+        Ok((self, warnings))
+    }
+    pub fn new(plan_wd: &Path) -> Result<(Self, Vec<String>), Box<dyn std::error::Error>> {
         let str = fs::read_to_string(plan_wd.join("plan.toml"))?;
         let plan: PlanDef = toml::from_str(&str)?;
         let mut screens = HashMap::new();
@@ -161,7 +190,7 @@ impl Plan {
                 },
             );
         }
-        Ok(Self {
+        let plan = Self {
             workdir: plan_wd.to_owned(),
             package: plan.package,
             activity: plan.activity,
@@ -169,7 +198,8 @@ impl Plan {
             screen_groups,
             schedules: plan.schedules,
             routine_location,
-        })
+        };
+        Ok(plan.validate()?)
     }
 }
 
@@ -290,4 +320,9 @@ where
     T: serde::Deserialize<'de>,
 {
     Ok(Vec::<T>::from(SingleOrVec::deserialize(deserializer)?))
+}
+
+pub fn deser_idents(str: &str) -> Result<Vec<ScreenIdent>, Box<dyn Error>> {
+    let s_or_v = deserialize_single_or_vec(toml::de::ValueDeserializer::new(str))?;
+    Ok(s_or_v)
 }

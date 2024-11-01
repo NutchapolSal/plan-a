@@ -9,6 +9,7 @@ use std::{
 };
 
 use adb_client::ADBServerDevice;
+use eframe::egui::debug_text::print;
 use errors::*;
 use image::{io::Reader as ImageReader, DynamicImage, GenericImage, GenericImageView, RgbaImage};
 use image_new::DynamicImage as DynamicImageNew;
@@ -53,6 +54,15 @@ mod errors {
     impl Error for UnknownScreenError {}
 
     #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UnknownScreenGroupError;
+    impl std::fmt::Display for UnknownScreenGroupError {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "Invalid screen group")
+        }
+    }
+    impl Error for UnknownScreenGroupError {}
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct PathNotFoundError;
     impl std::fmt::Display for PathNotFoundError {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -61,9 +71,6 @@ mod errors {
     }
     impl Error for PathNotFoundError {}
 }
-
-
-
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 struct ScreenState {
@@ -77,8 +84,8 @@ impl ScreenState {
         screens: &HashMap<String, Screen>,
         target: &str,
     ) -> Result<Self, Box<dyn Error>> {
-        let curr_screen = screens.get(&self.curr).ok_or(UnknownScreenError)?;
-        let screen = screens.get(target).ok_or(UnknownScreenError)?;
+        let curr_screen = screens.get(&self.curr).expect("to be able to find screen");
+        let screen = screens.get(target).expect("to be able to find screen");
 
         if !screen.nav.back {
             Ok(Self {
@@ -132,7 +139,9 @@ impl ScreenStatePathfinding {
         screens: &HashMap<String, Screen>,
         screen_groups: &HashMap<String, ScreenGroup>,
     ) -> Result<Vec<ScreenStatePathfinding>, Box<dyn Error>> {
-        let curr_screen = screens.get(&self.state.curr).ok_or(UnknownScreenError)?;
+        let curr_screen = screens
+            .get(&self.state.curr)
+            .expect("to be able to find screen");
         let mut succ = Vec::new();
         if curr_screen.nav.back {
             if let Some(back) = self.state.back() {
@@ -149,7 +158,9 @@ impl ScreenStatePathfinding {
             });
         }
         if let Some(group) = &curr_screen.group {
-            let group = screen_groups.get(group).ok_or(UnknownScreenError)?;
+            let group = screen_groups
+                .get(group)
+                .expect("to be able to find screen group");
             for k in group.screens.iter() {
                 if k != &self.state.curr {
                     succ.push(ScreenStatePathfinding {
@@ -165,7 +176,8 @@ impl ScreenStatePathfinding {
                 });
             }
         }
-        Ok(succ)
+
+        Ok(dbg!(succ))
     }
 
     fn to_screento(
@@ -277,17 +289,11 @@ impl ScreenEngine {
         let path = bfs(
             &ScreenStatePathfinding::new(self.state.clone()),
             |s| {
-                println!("going through {:?} > {}", &s.state.back, s.state.curr);
                 s.successors(&self.screens, &self.screen_groups)
                     .unwrap_or_default()
             },
             |s| s.state.curr == target,
         );
-
-        match &path {
-            Some(path) => println!("path: {:#?}", path),
-            None => println!("no path found"),
-        };
 
         path.ok_or(PathNotFoundError.into())
     }
@@ -402,12 +408,12 @@ impl<'a> PlanEngine<'a> {
         }
     }
 
-    pub fn run_script(&mut self, path: &Path) -> Result<(), Box<dyn Error>> {
+    pub fn run_script(&mut self, routine_name: &Path) -> Result<(), Box<dyn Error>> {
         self.lua.globals().raw_remove("run")?;
-        let script = fs::read_to_string(self.plan.workdir.join(path))?;
+        let script = fs::read_to_string(self.plan.workdir.join(routine_name))?;
         self.lua
             .load(&script)
-            .set_name(path.to_string_lossy())
+            .set_name(routine_name.to_string_lossy())
             .exec()?;
         let run_func = self.lua.globals().get::<_, Function>("run")?;
         run_func.call(())?;
@@ -423,6 +429,7 @@ impl<'a> PlanEngine<'a> {
                 match s {
                     ScreenEngineAction::Identify(screen_idents) => {
                         let screenshot = self.device.lock().unwrap().framebuffer_inner()?;
+                        let mut idented = false;
                         for (name, idents) in screen_idents {
                             let succ = idents
                                 .iter()
@@ -441,11 +448,16 @@ impl<'a> PlanEngine<'a> {
                                 None => {
                                     println!("identified screen {}", name);
                                     self.screen_engine.mark_identified(&name);
+                                    idented = true;
                                     break;
                                 }
                             }
                         }
-                        println!("No screen identified");
+                        if !idented {
+                            println!("No screen identified");
+                        } else {
+                            continue 'engine_loop;
+                        }
                     }
                     ScreenEngineAction::Navigate(name, to) => {
                         println!("Navigating to {}", name);
@@ -495,9 +507,13 @@ impl<'a> PlanEngine<'a> {
         }
         Ok(())
     }
+
+    pub fn get_state(&self) -> &str {
+        self.screen_engine.get_state()
+    }
 }
 
-trait WorkingScreenIdent {
+pub trait WorkingScreenIdent {
     fn ident_screen(
         &self,
         plan: &Plan,
@@ -548,6 +564,8 @@ impl WorkingScreenIdent for ScreenIdent {
                     let mut debug_gui = debug_gui.lock().unwrap();
                     debug_gui.push_text(&format!("{:?}", extremes));
                 }
+                dbg!(&extremes);
+
                 Ok(extremes.min_value < 0.04)
             }
             ScreenIdent::ImageMatch {
@@ -580,6 +598,8 @@ impl WorkingScreenIdent for ScreenIdent {
                     let mut debug_gui = debug_gui.lock().unwrap();
                     debug_gui.push_text(&format!("{:?}", extremes));
                 }
+                dbg!(&extremes);
+
                 Ok(extremes.min_value < 0.04)
             }
             ScreenIdent::Ocr {
@@ -629,6 +649,7 @@ fn run_ocr(
         let mut debug_gui = debug_gui.lock().unwrap();
         debug_gui.push_text(&text);
     }
+    dbg!(&text);
     Ok(text)
 }
 

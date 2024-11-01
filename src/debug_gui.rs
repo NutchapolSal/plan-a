@@ -1,5 +1,9 @@
 use std::{
-    fs, path::PathBuf, sync::{Arc, Mutex}, thread
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
 };
 
 use chrono::Local;
@@ -86,6 +90,7 @@ pub enum DebugItem {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        ctx.request_repaint_after(Duration::from_millis(1000));
         egui::CentralPanel::default().show(ctx, |ui| {
             if ui.button("Trigger").clicked() {
                 self.datas.lock().unwrap().trigger = true;

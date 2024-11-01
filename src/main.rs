@@ -56,8 +56,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let plan_wd = PathBuf::from(&userdata_path.join("plans/azurlane")); // TODO
 
-    let plan: Plan = Plan::new(&plan_wd)?;
-    println!("{:#?}", plan);
+    let (plan, plan_warnings) = Plan::new(&plan_wd)?;
+    for warning in plan_warnings {
+        eprintln!("{}", warning);
+    }
 
     let mut server = ADBServer::new(config.adb.host);
     let device = server.try_connect_to_device(&config)?;
@@ -138,7 +140,7 @@ fn run_plan(
                 for routine in vec {
                     let nav_target = plan.routine_location.get(routine).unwrap();
                     plan_engine.navigate_to(nav_target)?;
-                    plan_engine.run_script(&plan.workdir.join(routine))?;
+                    plan_engine.run_script(routine)?;
                 }
             }
             def::ScheduleActions::Script(path) => {
@@ -146,5 +148,6 @@ fn run_plan(
             }
         }
     }
+    plan_engine.navigate_to("end")?;
     Ok(())
 }
