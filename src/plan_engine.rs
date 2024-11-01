@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fs,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     thread::sleep,
     time::Duration,
 };
@@ -19,13 +19,14 @@ use template_matching::{find_extremes, match_template};
 
 use crate::{
     adb_device_ext::ADBDeviceSimpleCommand,
+    debug_gui::{self, DebugData},
     def::{Actions, Plan, Screen, ScreenGroup, ScreenIdent, ScreenTo, TextOperation},
     image_stuff::{downgrade_image, RgbaImageNew},
 };
 
 #[derive(Clone, Debug)]
 pub enum ScreenEngineAction {
-    Identify(Vec<(String, ScreenIdent)>),
+    Identify(Vec<(String, Vec<ScreenIdent>)>),
     Navigate(String, ScreenTo),
     None,
 }
@@ -60,6 +61,9 @@ mod errors {
     }
     impl Error for PathNotFoundError {}
 }
+
+
+
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 struct ScreenState {
@@ -221,7 +225,7 @@ impl ScreenEngine {
             screen_groups: plan.screen_groups.clone(),
             state: Default::default(),
             navigate_plan: Default::default(),
-            idented: plan.screens.get("start").unwrap().ident.is_none(),
+            idented: plan.screens.get("start").unwrap().ident.is_empty(),
         }
     }
 
@@ -239,10 +243,10 @@ impl ScreenEngine {
 
             if !self.idented {
                 let ident = &self.screens.get(&self.state.curr).unwrap().ident;
-                if ident.is_some() {
+                if !ident.is_empty() {
                     return Ok(ScreenEngineAction::Identify(vec![(
                         self.state.curr.to_owned(),
-                        ident.clone().unwrap(),
+                        ident.clone(),
                     )]));
                 } else {
                     self.idented = true;
@@ -321,10 +325,16 @@ pub struct PlanEngine<'a> {
     device: Arc<Mutex<ADBServerDevice>>,
     screen_engine: ScreenEngine,
     lua: Lua,
+    debug_gui: Weak<Mutex<DebugData>>,
 }
 
 impl<'a> PlanEngine<'a> {
-    pub fn new(plan: &'a Plan, device: Arc<Mutex<ADBServerDevice>>, ocr: Arc<OcrEngine>) -> Self {
+    pub fn new(
+        plan: &'a Plan,
+        device: Arc<Mutex<ADBServerDevice>>,
+        ocr: Arc<OcrEngine>,
+        debug_gui: Weak<Mutex<DebugData>>,
+    ) -> Self {
         let lua = Lua::new();
 
         let device_table = lua.create_table().unwrap();
@@ -357,6 +367,7 @@ impl<'a> PlanEngine<'a> {
 
         let screen_table = lua.create_table().unwrap();
         let ocr_1 = ocr.clone();
+        let dbgui_1 = debug_gui.clone();
         screen_table
             .set(
                 "try_idents",
@@ -374,7 +385,7 @@ impl<'a> PlanEngine<'a> {
                     let mut device = d_3.lock().unwrap();
                     let ocr = &ocr_1;
                     let screenshot = device.framebuffer_inner().unwrap();
-                    Ok(run_ocr(ocr, screenshot, (x, y, width, height)).unwrap())
+                    Ok(run_ocr(ocr, screenshot, (x, y, width, height), dbgui_1.clone()).unwrap())
                 })
                 .unwrap(),
             )
@@ -387,6 +398,7 @@ impl<'a> PlanEngine<'a> {
             device: device.clone(),
             screen_engine: ScreenEngine::from_plan(plan),
             lua,
+            debug_gui,
         }
     }
 
@@ -409,13 +421,28 @@ impl<'a> PlanEngine<'a> {
                 let s = self.screen_engine.step()?;
                 println!("stepping");
                 match s {
-                    ScreenEngineAction::Identify(idents) => {
+                    ScreenEngineAction::Identify(screen_idents) => {
                         let screenshot = self.device.lock().unwrap().framebuffer_inner()?;
-                        for (name, ident) in idents {
-                            if ident.ident_screen(self.plan, &self.ocr, screenshot.clone())? {
-                                println!("identified screen {}", name);
-                                self.screen_engine.mark_identified(&name);
-                                break;
+                        for (name, idents) in screen_idents {
+                            let succ = idents
+                                .iter()
+                                .map(|id| {
+                                    id.ident_screen(
+                                        self.plan,
+                                        &self.ocr,
+                                        screenshot.clone(),
+                                        self.debug_gui.clone(),
+                                    )
+                                })
+                                .find(|res| res.is_err() || res.as_ref().is_ok_and(|v| !v));
+                            match succ {
+                                Some(Err(err)) => return Err(err),
+                                Some(Ok(_)) => {}
+                                None => {
+                                    println!("identified screen {}", name);
+                                    self.screen_engine.mark_identified(&name);
+                                    break;
+                                }
                             }
                         }
                         println!("No screen identified");
@@ -476,6 +503,7 @@ trait WorkingScreenIdent {
         plan: &Plan,
         ocr: &OcrEngine,
         screenshot: RgbaImageNew,
+        debug_gui: Weak<Mutex<DebugData>>,
     ) -> Result<bool, Box<dyn Error>>;
 }
 
@@ -485,63 +513,81 @@ impl WorkingScreenIdent for ScreenIdent {
         plan: &Plan,
         ocr: &OcrEngine,
         screenshot: RgbaImageNew,
+        debug_gui: Weak<Mutex<DebugData>>,
     ) -> Result<bool, Box<dyn Error>> {
         match self {
             ScreenIdent::RefMatch {
                 reference: ref_image_path,
                 rect,
             } => {
-                let ref_image = ImageReader::open(plan.workdir.join(ref_image_path))?
+                let ref_dyn_image = ImageReader::open(plan.workdir.join(ref_image_path))?
                     .decode()?
-                    .crop(rect.0, rect.1, rect.2, rect.3)
-                    .to_luma32f();
+                    .crop(rect.0, rect.1, rect.2, rect.3);
+                let ref_image = ref_dyn_image.to_luma32f();
                 let screenshot = downgrade_image(screenshot);
-                let screenshot = DynamicImage::from(screenshot)
-                    .crop(
-                        rect.0.saturating_sub(20),
-                        rect.1.saturating_sub(20),
-                        rect.2 + 20,
-                        rect.3 + 20,
-                    )
-                    .to_luma32f();
+                let scr_dyn_image = DynamicImage::from(screenshot).crop(
+                    rect.0.saturating_sub(20),
+                    rect.1.saturating_sub(20),
+                    rect.2 + 40,
+                    rect.3 + 40,
+                );
+                let screenshot = scr_dyn_image.to_luma32f();
+                if let Some(debug_gui) = debug_gui.upgrade() {
+                    let mut debug_gui = debug_gui.lock().unwrap();
+                    debug_gui.push_text("Ref match:");
+                    debug_gui.push_image(scr_dyn_image);
+                    debug_gui.push_image(ref_dyn_image);
+                }
                 let m = match_template(
                     &screenshot,
                     &ref_image,
                     template_matching::MatchTemplateMethod::SumOfSquaredDifferences,
                 );
-                let extremes = find_extremes(&m);
-                Ok(extremes.min_value < 250.0)
+                let extremes = get_normalized_extremes(&find_extremes(&m), ref_image.dimensions());
+                if let Some(debug_gui) = debug_gui.upgrade() {
+                    let mut debug_gui = debug_gui.lock().unwrap();
+                    debug_gui.push_text(&format!("{:?}", extremes));
+                }
+                Ok(extremes.min_value < 0.04)
             }
             ScreenIdent::ImageMatch {
                 image: image_path,
                 pos,
             } => {
-                let ref_image = ImageReader::open(plan.workdir.join(image_path))?
-                    .decode()?
-                    .to_luma32f();
+                let ref_dyn_image = ImageReader::open(plan.workdir.join(image_path))?.decode()?;
+                let ref_image = ref_dyn_image.to_luma32f();
                 let screenshot = downgrade_image(screenshot);
-                let screenshot = DynamicImage::from(screenshot)
-                    .crop(
-                        pos.0.saturating_sub(20),
-                        pos.1.saturating_sub(20),
-                        ref_image.width() + 20,
-                        ref_image.height() + 20,
-                    )
-                    .to_luma32f();
+                let scr_dyn_image = DynamicImage::from(screenshot).crop(
+                    pos.0.saturating_sub(20),
+                    pos.1.saturating_sub(20),
+                    ref_image.width() + 40,
+                    ref_image.height() + 40,
+                );
+                let screenshot = scr_dyn_image.to_luma32f();
+                if let Some(debug_gui) = debug_gui.upgrade() {
+                    let mut debug_gui = debug_gui.lock().unwrap();
+                    debug_gui.push_text("Image match:");
+                    debug_gui.push_image(scr_dyn_image);
+                    debug_gui.push_image(ref_dyn_image);
+                }
                 let m = match_template(
                     &screenshot,
                     &ref_image,
                     template_matching::MatchTemplateMethod::SumOfSquaredDifferences,
                 );
-                let extremes = find_extremes(&m);
-                Ok(extremes.min_value < 250.0)
+                let extremes = get_normalized_extremes(&find_extremes(&m), ref_image.dimensions());
+                if let Some(debug_gui) = debug_gui.upgrade() {
+                    let mut debug_gui = debug_gui.lock().unwrap();
+                    debug_gui.push_text(&format!("{:?}", extremes));
+                }
+                Ok(extremes.min_value < 0.04)
             }
             ScreenIdent::Ocr {
                 ocr: ocr_target,
                 operation,
                 rect,
             } => {
-                let text = run_ocr(ocr, screenshot, *rect)?;
+                let text = run_ocr(ocr, screenshot, *rect, debug_gui)?;
                 Ok(operation.run(&text, ocr_target))
             }
         }
@@ -567,12 +613,33 @@ fn run_ocr(
     ocr: &OcrEngine,
     screenshot: RgbaImageNew,
     rect: (u32, u32, u32, u32),
+    debug_gui: Weak<Mutex<DebugData>>,
 ) -> Result<String, Box<dyn Error>> {
-    let screenshot = DynamicImageNew::from(screenshot)
-        .crop(rect.0, rect.1, rect.2, rect.3)
-        .to_rgb8();
+    let dyn_image = DynamicImageNew::from(screenshot).crop(rect.0, rect.1, rect.2, rect.3);
+    let screenshot = dyn_image.to_rgb8();
+    if let Some(debug_gui) = debug_gui.upgrade() {
+        let mut debug_gui = debug_gui.lock().unwrap();
+        debug_gui.push_text("OCR:");
+        debug_gui.push_image_new(dyn_image);
+    }
     let screenshot = ImageSource::from_bytes(screenshot.as_raw(), screenshot.dimensions())?;
     let screenshot = ocr.prepare_input(screenshot)?;
     let text = ocr.get_text(&screenshot)?;
+    if let Some(debug_gui) = debug_gui.upgrade() {
+        let mut debug_gui = debug_gui.lock().unwrap();
+        debug_gui.push_text(&text);
+    }
     Ok(text)
+}
+
+fn get_normalized_extremes(
+    extremes: &template_matching::Extremes,
+    template_size: (u32, u32),
+) -> template_matching::Extremes {
+    template_matching::Extremes {
+        min_value: extremes.min_value / (template_size.0 * template_size.1) as f32,
+        max_value: extremes.max_value / (template_size.0 * template_size.1) as f32,
+        min_value_location: extremes.min_value_location,
+        max_value_location: extremes.max_value_location,
+    }
 }

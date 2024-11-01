@@ -7,15 +7,16 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     thread::sleep,
     time::Duration,
     vec::{self, Vec},
 };
 
 use adb_client::{ADBServer, ADBServerDevice};
-use adb_device_ext::ADBDeviceSimpleCommand;
+use adb_device_ext::{ADBDeviceSimpleCommand, ADBServerTryConnectToDevice};
 use chrono::Local;
+use debug_gui::DebugData;
 use def::{Config, Plan, Schedule};
 use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma, RgbaImage};
 use image_stuff::{convert_luma_f32_to_u8, downgrade_image};
@@ -29,6 +30,7 @@ use rten::Model;
 use serde::Deserialize;
 use template_matching::{find_extremes, match_template, MatchTemplateMethod};
 mod adb_device_ext;
+mod debug_gui;
 mod def;
 mod image_stuff;
 mod plan_engine;
@@ -36,6 +38,8 @@ mod plan_engine;
 fn main() -> Result<(), Box<dyn Error>> {
     let userdata_path = Path::new("./userdata"); // TODO
     let config = def::Config::new(&userdata_path.join("config.toml"))?;
+
+    let debug_gui = debug_gui::run()?;
 
     let detection_model = Model::load_file(userdata_path.join(&config.ocr.detection_model_path))?;
     let recognition_model =
@@ -56,13 +60,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("{:#?}", plan);
 
     let mut server = ADBServer::new(config.adb.host);
-    let device = try_connect_to_device(&config, &mut server)?;
+    let device = server.try_connect_to_device(&config)?;
     let device = Arc::new(Mutex::new(device));
 
-    run_plan(device, ocr, &plan)?;
+    run_plan(device, ocr, &plan, Arc::downgrade(&debug_gui))?;
 
     return Ok(());
-
 
     println!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
 
@@ -100,6 +103,7 @@ fn run_plan(
     device: Arc<Mutex<ADBServerDevice>>,
     ocr: Arc<OcrEngine>,
     plan: &Plan,
+    debug_gui: Weak<Mutex<DebugData>>,
 ) -> Result<(), Box<dyn Error>> {
     {
         let mut dev = device.lock().unwrap();
@@ -107,7 +111,7 @@ fn run_plan(
         dev.start_app(&plan.package, &plan.activity)?;
     }
 
-    let mut plan_engine = plan_engine::PlanEngine::new(plan, device, ocr);
+    let mut plan_engine = plan_engine::PlanEngine::new(plan, device, ocr, debug_gui);
 
     // println!("{:?}", engine.get_state());
 
@@ -144,36 +148,3 @@ fn run_plan(
     }
     Ok(())
 }
-
-fn try_connect_to_device(
-    config: &Config,
-    server: &mut ADBServer,
-) -> Result<ADBServerDevice, Box<dyn Error>> {
-    let mut retry_connect_device = 0;
-    loop {
-        if 0 < retry_connect_device {
-            let device_socket = SocketAddrV4::from_str(&config.adb.device_serial);
-            match device_socket {
-                Ok(device_socket) => {
-                    println!("{:?}", server.connect_device(device_socket));
-                }
-                Err(_) => {
-                    println!("{:?}", server.connect_device(config.adb.host));
-                }
-            }
-        }
-        let device_temp = server.get_device_by_name(&config.adb.device_serial);
-        match device_temp {
-            Ok(d) => {
-                break Ok(d);
-            }
-            Err(e) => {
-                if 1 < retry_connect_device {
-                    return Err(Box::new(e));
-                }
-                retry_connect_device += 1;
-            }
-        }
-    }
-}
-

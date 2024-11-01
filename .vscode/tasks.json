@@ -11,7 +11,18 @@
 				"kind": "build",
 				"isDefault": true
 			},
-			"label": "rust: cargo build",
+			"label": "rust: cargo build plan-a",
+		},
+		{
+			"type": "cargo",
+			"command": "build","args": ["--bin", "plan-studio"],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"group": {
+				"kind": "build",
+			},
+			"label": "rust: cargo build plan-studio",
 		}
 	]
 }

@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 adb_client = "2.0.0"
 chrono = "0.4.38"
+eframe = "0.29.1"
+egui_extras = { version = "0.29.1", features = ["all_loaders"] }
 image = "0.24"
 image_new = { version = "0.25", package = "image" }
 imageproc = "0.23"
@@ -18,9 +20,14 @@ rten = "0.13"
 serde = { version = "1.0.210", features = ["derive"] }
 template-matching = { version = "0.2.0", features = ["image"] }
 toml = { version = "0.8.19", features = ["parse"] }
+winit = "0.30.5"
 
 [patch.crates-io]
 adb_client = { path = "../adb_client/adb_client" }
 
 [profile.dev.package.ocrs]
 opt-level = 3
+
+[[bin]]
+name = "plan-studio"
+path = "src/plan_studio.rs"

@@ -1,8 +1,10 @@
-use std::vec::Vec;
+use std::{net::SocketAddrV4, str::FromStr, vec::Vec};
 
-use adb_client::{ADBDeviceExt, ADBServerDevice};
+use adb_client::{ADBDeviceExt, ADBServer, ADBServerDevice};
 
 use std::error::Error;
+
+use crate::def::Config;
 
 pub(crate) trait ADBDeviceRunCommand {
     fn run_command<S>(
@@ -67,5 +69,44 @@ impl ADBDeviceSimpleCommand for ADBServerDevice {
     fn stop_app(&mut self, package: &str) -> Result<(), Box<dyn Error>> {
         self.shell_command(vec!["am", "stop-app", package], &mut Vec::new())?;
         Ok(())
+    }
+}
+
+pub trait ADBServerTryConnectToDevice {
+    fn try_connect_to_device(&mut self, config: &Config)
+        -> Result<ADBServerDevice, Box<dyn Error>>;
+}
+
+impl ADBServerTryConnectToDevice for ADBServer {
+    fn try_connect_to_device(
+        &mut self,
+        config: &Config,
+    ) -> Result<ADBServerDevice, Box<dyn Error>> {
+        let mut retry_connect_device = 0;
+        loop {
+            if 0 < retry_connect_device {
+                let device_socket = SocketAddrV4::from_str(&config.adb.device_serial);
+                match device_socket {
+                    Ok(device_socket) => {
+                        println!("{:?}", self.connect_device(device_socket));
+                    }
+                    Err(_) => {
+                        println!("{:?}", self.connect_device(config.adb.host));
+                    }
+                }
+            }
+            let device_temp = self.get_device_by_name(&config.adb.device_serial);
+            match device_temp {
+                Ok(d) => {
+                    break Ok(d);
+                }
+                Err(e) => {
+                    if 1 < retry_connect_device {
+                        return Err(Box::new(e));
+                    }
+                    retry_connect_device += 1;
+                }
+            }
+        }
     }
 }

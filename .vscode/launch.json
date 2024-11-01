@@ -3,7 +3,7 @@
         {
             "type": "cppvsdbg",
             "request": "launch",
-            "name": "cargo run",
+            "name": "plan-a",
             "cwd": "${workspaceFolder}",
             "program": "${workspaceFolder}\\target\\debug\\plan-a.exe",
             "environment": [
@@ -15,6 +15,22 @@
             "args": [],
             "sourceFileMap": {},
             "preLaunchTask": "${defaultBuildTask}"
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "plan-studio",
+            "cwd": "${workspaceFolder}",
+            "program": "${workspaceFolder}\\target\\debug\\plan-studio.exe",
+            "environment": [
+                {
+                    "name": "RUST_BACKTRACE",
+                    "value": "short"
+                }
+            ],
+            "args": [],
+            "sourceFileMap": {},
+            "preLaunchTask": "rust: cargo build plan-studio"
         }
     ]
 }

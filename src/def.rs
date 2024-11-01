@@ -85,7 +85,7 @@ pub struct Plan {
 
 #[derive(Clone, Debug)]
 pub struct Screen {
-    pub ident: Option<ScreenIdent>,
+    pub ident: Vec<ScreenIdent>,
     pub nav: ScreenNavigation,
     pub routines: Vec<PathBuf>,
     pub group: Option<String>,
@@ -93,7 +93,7 @@ pub struct Screen {
 
 #[derive(Clone, Debug)]
 pub struct ScreenGroup {
-    pub ident: Option<ScreenIdent>,
+    pub ident: Vec<ScreenIdent>,
     pub screens: Vec<String>,
     pub nav: ScreenNavigation,
 }
@@ -151,7 +151,7 @@ impl Plan {
             screens.insert(
                 "end".to_owned(),
                 Screen {
-                    ident: None,
+                    ident: Vec::new(),
                     nav: ScreenNavigation {
                         to: HashMap::new(),
                         back: false,
@@ -183,7 +183,8 @@ pub struct PlanDef {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct ScreenDef {
-    pub ident: Option<ScreenIdent>,
+    #[serde(deserialize_with = "deserialize_single_or_vec", default)]
+    pub ident: Vec<ScreenIdent>,
     #[serde(flatten)]
     pub nav: ScreenNavigation,
     #[serde(default)]
@@ -201,7 +202,8 @@ pub struct ScreenNavigation {
 
 #[derive(Clone, Deserialize, Debug)]
 pub struct Subscreen {
-    pub ident: Option<ScreenIdent>,
+    #[serde(deserialize_with = "deserialize_single_or_vec", default)]
+    pub ident: Vec<ScreenIdent>,
     #[serde(default)]
     pub to: HashMap<String, ScreenTo>,
     #[serde(default)]
@@ -264,4 +266,28 @@ pub struct Schedule {
 pub enum ScheduleActions {
     Routines(Vec<PathBuf>),
     Script(PathBuf),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SingleOrVec<T> {
+    Single(T),
+    Vec(Vec<T>),
+}
+
+impl<T> From<SingleOrVec<T>> for Vec<T> {
+    fn from(single_or_vec: SingleOrVec<T>) -> Self {
+        match single_or_vec {
+            SingleOrVec::Single(single) => vec![single],
+            SingleOrVec::Vec(vec) => vec,
+        }
+    }
+}
+
+fn deserialize_single_or_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Vec::<T>::from(SingleOrVec::deserialize(deserializer)?))
 }
