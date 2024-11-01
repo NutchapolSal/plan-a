@@ -707,12 +707,13 @@ fn run_ocr(
     let screenshot = ImageSource::from_bytes(screenshot.as_raw(), screenshot.dimensions())?;
     let screenshot = ocr.prepare_input(screenshot)?;
     let text = ocr.get_text(&screenshot)?;
+    let text = text.trim();
     if let Some(debug_gui) = debug_gui.upgrade() {
         let mut debug_gui = debug_gui.lock().unwrap();
         debug_gui.push_text(&text);
     }
     dbg!(&text);
-    Ok(text)
+    Ok(text.to_string())
 }
 
 fn get_normalized_extremes(
