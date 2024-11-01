@@ -98,6 +98,7 @@ impl eframe::App for MyApp {
 
             if ui.button("Clear").clicked() {
                 self.datas.lock().unwrap().items.clear();
+                ctx.forget_all_images();
             }
 
             egui::ScrollArea::vertical()
