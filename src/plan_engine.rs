@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     error::Error,
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, Weak},
     thread::sleep,
     time::Duration,
@@ -344,7 +344,13 @@ impl<'a> PlanEngine<'a> {
         let lua = Lua::new();
 
         let device_table = lua.create_table().unwrap();
-        let (d_1, d_2, d_3) = (device.clone(), device.clone(), device.clone());
+        let (d_1, d_2, d_3, d_4, d_5) = (
+            device.clone(),
+            device.clone(),
+            device.clone(),
+            device.clone(),
+            device.clone(),
+        );
         device_table
             .set(
                 "tap",
@@ -372,15 +378,56 @@ impl<'a> PlanEngine<'a> {
         lua.globals().set("device", device_table).unwrap();
 
         let screen_table = lua.create_table().unwrap();
-        let ocr_1 = ocr.clone();
-        let dbgui_1 = debug_gui.clone();
+        let (ocr_1, ocr_2, ocr_3) = (ocr.clone(), ocr.clone(), ocr.clone());
+        let (dbgui_1, dbgui_2, dbgui_3) = (debug_gui.clone(), debug_gui.clone(), debug_gui.clone());
+        let (pl_1, pl_2) = (plan.clone(), plan.clone());
+        // screen_table
+        //     .set(
+        //         "try_idents",
+        //         lua.create_function_mut(move |_, screen_names: Variadic<String>| {
+        //             // something something
+        //             Ok(())
+        //         })
+        //         .unwrap(),
+        //     )
+        //     .unwrap();
         screen_table
             .set(
-                "try_idents",
-                lua.create_function_mut(move |_, screen_names: Variadic<String>| {
-                    // something something
-                    Ok(())
+                "image_match",
+                lua.create_function(move |_, (path, x, y): (String, u32, u32)| {
+                    let mut device = d_4.lock().unwrap();
+                    let ocr = &ocr_2;
+                    let screenshot = device.framebuffer_inner().unwrap();
+                    let matcher = ScreenIdent::ImageMatch {
+                        image: PathBuf::from(path),
+                        pos: (x, y),
+                    };
+                    let res = matcher
+                        .ident_screen(&pl_1, ocr, screenshot, dbgui_2.clone())
+                        .unwrap();
+                    Ok(res)
                 })
+                .unwrap(),
+            )
+            .unwrap();
+        screen_table
+            .set(
+                "ref_match",
+                lua.create_function(
+                    move |_, (path, x, y, width, height): (String, u32, u32, u32, u32)| {
+                        let mut device = d_5.lock().unwrap();
+                        let ocr = &ocr_3;
+                        let screenshot = device.framebuffer_inner().unwrap();
+                        let matcher = ScreenIdent::RefMatch {
+                            reference: PathBuf::from(path),
+                            rect: (x, y, width, height),
+                        };
+                        let res = matcher
+                            .ident_screen(&pl_2, ocr, screenshot, dbgui_3.clone())
+                            .unwrap();
+                        Ok(res)
+                    },
+                )
                 .unwrap(),
             )
             .unwrap();
@@ -397,6 +444,17 @@ impl<'a> PlanEngine<'a> {
             )
             .unwrap();
         lua.globals().set("screen", screen_table).unwrap();
+
+        lua.globals()
+            .set(
+                "sleep_after_interact",
+                lua.create_function(|_, ()| {
+                    sleep(Duration::from_secs(10));
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
 
         Self {
             plan,
