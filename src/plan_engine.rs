@@ -455,6 +455,16 @@ impl<'a> PlanEngine<'a> {
                 .unwrap(),
             )
             .unwrap();
+        lua.globals()
+            .set(
+                "sleep",
+                lua.create_function(|_, secs: u32| {
+                    sleep(Duration::from_secs(secs.into()));
+                    Ok(())
+                })
+                .unwrap(),
+            )
+            .unwrap();
 
         Self {
             plan,
