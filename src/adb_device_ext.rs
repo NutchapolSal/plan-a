@@ -6,7 +6,7 @@ use std::error::Error;
 
 use crate::def::Config;
 
-pub(crate) trait ADBDeviceRunCommand {
+pub trait ADBDeviceRunCommand {
     fn run_command<S>(
         &mut self,
         command: impl IntoIterator<Item = S>,
@@ -29,7 +29,7 @@ impl ADBDeviceRunCommand for ADBServerDevice {
     }
 }
 
-pub(crate) trait ADBDeviceSimpleCommand {
+pub trait ADBDeviceSimpleCommand {
     fn tap(&mut self, x: u32, y: u32) -> Result<(), Box<dyn Error>>;
     fn swipe(
         &mut self,

@@ -32,4 +32,4 @@ opt-level = 3
 
 [[bin]]
 name = "plan-studio"
-path = "src/plan_studio.rs"
+path = "src/bin/plan_studio.rs"

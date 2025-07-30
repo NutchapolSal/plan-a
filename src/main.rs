@@ -6,18 +6,14 @@ use std::{
 };
 
 use adb_client::{ADBServer, ADBServerDevice};
-use adb_device_ext::{ADBDeviceSimpleCommand, ADBServerTryConnectToDevice};
 use chrono::Local;
-use debug_gui::DebugData;
-use def::Plan;
 use glob::glob;
 use ocrs::{OcrEngine, OcrEngineParams};
+use plan_a::adb_device_ext::{ADBDeviceSimpleCommand, ADBServerTryConnectToDevice};
+use plan_a::debug_gui::{self, DebugData};
+use plan_a::def::{self, Plan};
+use plan_a::plan_engine;
 use rten::Model;
-mod adb_device_ext;
-mod debug_gui;
-mod def;
-mod image_stuff;
-mod plan_engine;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let userdata_path = Path::new("./userdata"); // TODO

@@ -6,6 +6,11 @@ use eframe::egui::{self, Pos2, Sense};
 use image_new::ImageReader;
 use itertools::Itertools;
 use ocrs::{OcrEngine, OcrEngineParams};
+use plan_a::adb_device_ext;
+use plan_a::debug_gui;
+use plan_a::def;
+use plan_a::image_stuff;
+use plan_a::plan_engine;
 use plan_engine::WorkingScreenIdent;
 use rten::Model;
 use std::{
@@ -16,11 +21,6 @@ use std::{
     thread,
     time::Duration,
 };
-mod adb_device_ext;
-mod debug_gui;
-mod def;
-mod image_stuff;
-mod plan_engine;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let userdata_path = Path::new("./userdata"); // TODO
