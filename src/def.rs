@@ -2,12 +2,12 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fs,
-    net::{AddrParseError, Ipv4Addr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddrV4},
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 
 /// `(x, y)`
 type Pos = (u32, u32);

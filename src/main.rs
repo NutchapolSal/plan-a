@@ -1,35 +1,18 @@
 use std::{
-    collections::VecDeque,
     error::Error,
-    fs,
-    io::{stdout, Write},
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
-    path::{Path, PathBuf},
-    process::Command,
-    str::FromStr,
+    path::Path,
     sync::{Arc, Mutex, Weak},
-    thread::sleep,
-    time::Duration,
-    vec::{self, Vec},
+    vec::Vec,
 };
 
 use adb_client::{ADBServer, ADBServerDevice};
 use adb_device_ext::{ADBDeviceSimpleCommand, ADBServerTryConnectToDevice};
 use chrono::Local;
 use debug_gui::DebugData;
-use def::{Config, Plan, Schedule};
+use def::Plan;
 use glob::glob;
-use image::{io::Reader as ImageReader, DynamicImage, GrayImage, ImageBuffer, Luma, RgbaImage};
-use image_stuff::{convert_luma_f32_to_u8, downgrade_image};
-use imageproc::contrast::{otsu_level, threshold};
-use mdns_sd::{ServiceDaemon, ServiceEvent};
-use mlua::{ExternalError, Function, Lua, Value::Nil};
-use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
-use plan_engine::ScreenEngine;
-use regex::Regex;
+use ocrs::{OcrEngine, OcrEngineParams};
 use rten::Model;
-use serde::Deserialize;
-use template_matching::{find_extremes, match_template, MatchTemplateMethod};
 mod adb_device_ext;
 mod debug_gui;
 mod def;

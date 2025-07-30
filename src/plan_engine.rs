@@ -9,18 +9,17 @@ use std::{
 };
 
 use adb_client::ADBServerDevice;
-use eframe::egui::debug_text::print;
 use errors::*;
-use image::{io::Reader as ImageReader, DynamicImage, GenericImage, GenericImageView, RgbaImage};
+use image::{io::Reader as ImageReader, DynamicImage};
 use image_new::DynamicImage as DynamicImageNew;
-use mlua::{Function, Lua, Variadic};
+use mlua::{Function, Lua};
 use ocrs::{ImageSource, OcrEngine};
-use pathfinding::prelude::{bfs, dfs};
+use pathfinding::prelude::bfs;
 use template_matching::{find_extremes, match_template};
 
 use crate::{
     adb_device_ext::ADBDeviceSimpleCommand,
-    debug_gui::{self, DebugData},
+    debug_gui::DebugData,
     def::{Actions, Plan, Screen, ScreenGroup, ScreenIdent, ScreenTo, TextOperation},
     image_stuff::{downgrade_image, RgbaImageNew},
 };

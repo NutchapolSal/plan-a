@@ -5,7 +5,7 @@ use def::{deser_idents, Plan, ScreenIdent};
 use eframe::egui::{self, Pos2, Sense};
 use image_new::ImageReader;
 use itertools::Itertools;
-use ocrs::{ImageSource, OcrEngine, OcrEngineParams};
+use ocrs::{OcrEngine, OcrEngineParams};
 use plan_engine::WorkingScreenIdent;
 use rten::Model;
 use std::{

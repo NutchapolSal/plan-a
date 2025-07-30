@@ -8,7 +8,7 @@ use std::{
 
 use chrono::Local;
 use eframe::egui;
-use image::{DynamicImage, ImageBuffer};
+use image::DynamicImage;
 use image_new::DynamicImage as DynamicImageNew;
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
