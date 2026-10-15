@@ -483,7 +483,7 @@ impl<'a> PlanEngine<'a> {
             .set_name(routine_name.to_string_lossy())
             .exec()?;
         let run_func = self.lua.globals().get::<_, Function>("run")?;
-        run_func.call(())?;
+        run_func.call::<_, ()>(())?;
         Ok(())
     }
 
